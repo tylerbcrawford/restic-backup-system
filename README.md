@@ -1,6 +1,8 @@
 # Restic Backup System
 
-Modular restic backup system with Docker volume support, offsite Google Drive sync, and Discord notifications.
+After a close call with a failing drive that almost took my Plex database with it, I built this to back up everything automatically — Docker volumes, system configs, the Plex DB (without the 40GB of regenerable cache), and my home directory — encrypted and synced offsite to Google Drive. It runs on cron and sends Discord notifications so I know it's working without having to check.
+
+Modular design — each backup target is its own script, so you can run just what you need or add new modules without touching the orchestrator.
 
 ## Features
 
