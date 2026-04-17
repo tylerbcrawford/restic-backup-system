@@ -46,7 +46,7 @@ main() {
 
     # Verify remote size
     local remote_size
-    remote_size=$(rclone size "$GDRIVE_DEST" --json 2>/dev/null | grep -o '"bytes":[0-9]*' | cut -d: -f2)
+    remote_size=$(rclone size "$GDRIVE_DEST" --json 2>/dev/null | sed -n 's/.*"bytes"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n1 || true)
     local local_size
     local_size=$(du -sb "$RESTIC_REPOSITORY" | awk '{print $1}')
 
@@ -62,7 +62,7 @@ main() {
 
     # Check GDrive free space
     local gdrive_free_gb
-    gdrive_free_gb=$(rclone about gdrive: --json 2>/dev/null | grep -o '"free":[0-9]*' | cut -d: -f2)
+    gdrive_free_gb=$(rclone about gdrive: --json 2>/dev/null | sed -n 's/.*"free"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n1 || true)
     if [[ -n "$gdrive_free_gb" ]]; then
         gdrive_free_gb=$((gdrive_free_gb / 1073741824))
         log "GDrive free space: ${gdrive_free_gb}GB"
