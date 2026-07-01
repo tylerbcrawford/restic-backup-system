@@ -4,6 +4,13 @@ After a close call with a failing drive that almost took my Plex database with i
 
 Modular design — each backup target is its own script, so you can run just what you need or add new modules without touching the orchestrator.
 
+> **Production context:** This runs nightly on my [49-service self-hosted media server](https://github.com/tylerbcrawford/infrastructure-showcase), protecting Docker volumes, the Plex database, system configs, and home directories in a local restic repo that is mirrored offsite to Google Drive.
+
+<p align="center">
+  <img src="docs/images/backup-report-discord.png" width="300" alt="Discord embed from a completed backup run showing each module passing with timing"><br>
+  <sub>Each run reports per-module status, duration, and repo size to Discord.</sub>
+</p>
+
 ## Features
 
 - **Orchestrated backup modes** — daily and weekly schedules with a single entry point
@@ -17,6 +24,13 @@ Modular design — each backup target is its own script, so you can run just wha
 - **Integrity verification** — weekly checks: 5% data sampling, snapshot freshness, disk space, GDrive sync status
 - **Full system image backup** — compressed dd images with progress monitoring and automatic Docker stop/start (extras)
 - **Drive preparation utility** — format and configure a backup drive with one command (extras)
+
+## Skills Demonstrated
+
+- **Encryption at rest** — restic encrypts every snapshot with a key held outside the repo, so a stolen drive or GDrive account exposes nothing.
+- **3-2-1 backup strategy** — local restic snapshots, a second on-site copy via the `dd` imaging extra, and an offsite mirror to Google Drive.
+- **Integrity sampling** — a weekly `restic check` reads a 5% data subset and validates snapshot freshness, local and offsite disk space, and GDrive sync status.
+- **Modular Bash** — a thin orchestrator sequences independent module scripts, captures per-module pass/fail with timings, and sends one summary. Any module also runs standalone.
 
 ## Architecture
 
