@@ -69,13 +69,8 @@ if [[ "$MODE" == "dry-run" ]]; then
     echo "Local disk: ${local_free}GB free"
     echo ""
 
-    echo "Google Drive:"
-    if rclone about gdrive: 2>/dev/null | head -3; then
-        echo "  Restic folder:"
-        rclone size "$GDRIVE_DEST" 2>/dev/null || echo "  (empty or not synced yet)"
-    else
-        echo "  (rclone not configured)"
-    fi
+    echo "Offsite ($OFFSITE_DEST):"
+    rclone size "$OFFSITE_DEST" 2>/dev/null || echo "  (empty, unreachable, or not synced yet)"
     echo ""
 
     echo "Modules that would run (--daily):"
@@ -83,7 +78,7 @@ if [[ "$MODE" == "dry-run" ]]; then
     echo "  2. backup-plex-db.sh       (Plex database)"
     echo "  3. backup-system-configs.sh (system configs)"
     echo "  4. backup-home.sh          (\$HOME)"
-    echo "  5. offsite-sync.sh         (rclone → GDrive)"
+    echo "  5. offsite-sync.sh         (rclone → offsite remote)"
 
     if [[ "$MODE" == "dry-run" ]]; then
         echo ""
@@ -112,11 +107,22 @@ fi
 # Daily modules — run all, don't stop on failure
 MODULES_DIR="$SCRIPT_DIR/modules"
 
-run_module "volumes" "$MODULES_DIR/backup-volumes.sh" || ((FAIL_COUNT++))
-run_module "plex-db" "$MODULES_DIR/backup-plex-db.sh" || ((FAIL_COUNT++))
-run_module "system-configs" "$MODULES_DIR/backup-system-configs.sh" || ((FAIL_COUNT++))
-run_module "home" "$MODULES_DIR/backup-home.sh" || ((FAIL_COUNT++))
-run_module "offsite-sync" "$MODULES_DIR/offsite-sync.sh" || ((FAIL_COUNT++))
+# Honor SKIP_MODULES ("plex-db volumes" etc.) so one codebase serves hosts
+# with different service footprints.
+run_or_skip() {
+    if [[ " ${SKIP_MODULES:-} " == *" $1 "* ]]; then
+        log "Module $1 skipped (SKIP_MODULES)"
+        MODULE_RESULTS[$1]="SKIP"
+        return 0
+    fi
+    run_module "$1" "$2"
+}
+
+run_or_skip "volumes" "$MODULES_DIR/backup-volumes.sh" || ((FAIL_COUNT++))
+run_or_skip "plex-db" "$MODULES_DIR/backup-plex-db.sh" || ((FAIL_COUNT++))
+run_or_skip "system-configs" "$MODULES_DIR/backup-system-configs.sh" || ((FAIL_COUNT++))
+run_or_skip "home" "$MODULES_DIR/backup-home.sh" || ((FAIL_COUNT++))
+run_or_skip "offsite-sync" "$MODULES_DIR/offsite-sync.sh" || ((FAIL_COUNT++))
 
 # Weekly-only modules
 if [[ "$MODE" == "weekly" ]]; then
