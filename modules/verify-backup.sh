@@ -25,11 +25,16 @@ main() {
 
     # 2. Snapshot freshness — warn if newest is older than threshold
     log "Checking snapshot freshness..."
-    local tags=("$TAG_VOLUMES" "$TAG_PLEX_DB" "$TAG_SYSTEM_CONFIGS" "$TAG_HOME")
+    # Tags match module names, so hosts with SKIP_MODULES set don't get
+    # freshness warnings for backups they intentionally never take.
+    local tags=()
+    for tag in "$TAG_VOLUMES" "$TAG_PLEX_DB" "$TAG_SYSTEM_CONFIGS" "$TAG_HOME"; do
+        [[ " $SKIP_MODULES " == *" $tag "* ]] || tags+=("$tag")
+    done
     for tag in "${tags[@]}"; do
         local latest_time
         latest_time=$(restic snapshots --tag "$tag" --json 2>/dev/null \
-            | grep -o '"time":"[^"]*"' | tail -1 | cut -d'"' -f4)
+            | grep -o '"time":"[^"]*"' | tail -1 | cut -d'"' -f4 || true)
 
         if [[ -z "$latest_time" ]]; then
             warn "No snapshots found for tag: $tag"
@@ -73,22 +78,22 @@ main() {
         log "Repo size: ${repo_gb}GB — OK"
     fi
 
-    # 5. GDrive freshness (compare local and remote sizes)
-    log "Checking GDrive sync status..."
+    # 5. Offsite freshness (compare local and remote sizes)
+    log "Checking offsite sync status ($OFFSITE_DEST)..."
     local remote_bytes
-    remote_bytes=$(rclone size "$GDRIVE_DEST" --json 2>/dev/null | grep -o '"bytes":[0-9]*' | cut -d: -f2)
+    remote_bytes=$(rclone size "$OFFSITE_DEST" --json 2>/dev/null | grep -o '"bytes":[0-9]*' | cut -d: -f2 || true)
     if [[ -n "$remote_bytes" && "$remote_bytes" -gt 0 ]]; then
         local local_bytes
         local_bytes=$(du -sb "$RESTIC_REPOSITORY" | awk '{print $1}')
         local diff=$(( local_bytes - remote_bytes ))
         if [[ ${diff#-} -gt 1048576 ]]; then
-            warn "GDrive out of sync: local=${local_bytes}b, remote=${remote_bytes}b"
+            warn "Offsite out of sync: local=${local_bytes}b, remote=${remote_bytes}b"
             WARNINGS=$((WARNINGS + 1))
         else
-            log "GDrive sync: sizes match — OK"
+            log "Offsite sync: sizes match — OK"
         fi
     else
-        warn "GDrive sync: could not read remote size"
+        warn "Offsite sync: could not read remote size"
         WARNINGS=$((WARNINGS + 1))
     fi
 
