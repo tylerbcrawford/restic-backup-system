@@ -1,10 +1,10 @@
 # Restic Backup System
 
-After a close call with a failing drive that almost took my Plex database with it, I built this to back up everything automatically — Docker volumes, system configs, the Plex DB (without the 40GB of regenerable cache), and my home directory. Everything's encrypted and synced offsite to Google Drive. It runs on cron and sends Discord notifications so I know it's working without having to check.
+After a close call with a failing drive that almost took my Plex database with it, I built this to back up everything automatically — Docker volumes, system configs, the Plex DB (without the 40GB of regenerable cache), and my home directory. Everything's encrypted and mirrored offsite to any rclone remote — Google Drive on one host, Backblaze B2 on another. It runs on cron and sends Discord notifications so I know it's working without having to check.
 
 Modular design — each backup target is its own script, so you can run just what you need or add new modules without touching the orchestrator.
 
-> **Production context:** This runs nightly on my [49-service self-hosted media server](https://github.com/tylerbcrawford/infrastructure-showcase), protecting Docker volumes, the Plex database, system configs, and home directories in a local restic repo that is mirrored offsite to Google Drive.
+> **Production context:** This runs nightly on two machines. On my [57-service self-hosted media server](https://github.com/tylerbcrawford/infrastructure-showcase) it protects Docker volumes, the Plex database, system configs, and home directories, mirrored offsite to Google Drive. On a public VPS the same codebase runs with `SKIP_MODULES="plex-db volumes"` and mirrors to Backblaze B2 (~$0.006/GB/month) — one repo, two hosts, per-host overrides in a gitignored `config.local.sh`.
 
 <p align="center">
   <img src="docs/images/backup-report-discord.png" width="300" alt="Discord embed from a completed backup run showing each module passing with timing"><br>
@@ -18,7 +18,8 @@ Modular design — each backup target is its own script, so you can run just wha
 - **Plex database backup** — targeted backup of just the Plex DB, skipping the 40GB+ of regenerable cache
 - **System config backup** — captures `/etc/nginx`, `fstab`, `hosts`, crontabs, Docker Compose files, and installed packages
 - **Home directory backup** — full home backup with configurable exclusions (caches, browser data, etc.)
-- **Offsite Google Drive sync** — mirrors the encrypted restic repo to GDrive via rclone with size verification
+- **Offsite sync to any rclone remote** — mirrors the encrypted restic repo to Google Drive, Backblaze B2, S3, or anything rclone speaks (`OFFSITE_DEST`), with size verification and an optional free-space check (`OFFSITE_FREE_MIN_GB`)
+- **Multi-host from one codebase** — `SKIP_MODULES` drops modules a host doesn't need (no Plex on the VPS), and `config.local.sh` holds per-host overrides outside git
 - **Discord webhook notifications** — rich embeds showing per-module pass/fail, duration, and repo size
 - **Snapshot pruning** — configurable retention policy (default: 7 daily, 4 weekly, 6 monthly)
 - **Integrity verification** — weekly checks: 5% data sampling, snapshot freshness, disk space, GDrive sync status
@@ -28,8 +29,8 @@ Modular design — each backup target is its own script, so you can run just wha
 ## Skills Demonstrated
 
 - **Encryption at rest** — restic encrypts every snapshot with a key held outside the repo, so a stolen drive or GDrive account exposes nothing.
-- **3-2-1 backup strategy** — local restic snapshots, a second on-site copy via the `dd` imaging extra, and an offsite mirror to Google Drive.
-- **Integrity sampling** — a weekly `restic check` reads a 5% data subset and validates snapshot freshness, local and offsite disk space, and GDrive sync status.
+- **3-2-1 backup strategy** — local restic snapshots, a second on-site copy via the `dd` imaging extra, and an offsite mirror (Google Drive or Backblaze B2 via rclone).
+- **Integrity sampling** — a weekly `restic check` reads a 5% data subset and validates snapshot freshness, local and offsite disk space, and offsite sync status.
 - **Modular Bash** — a thin orchestrator sequences independent module scripts, captures per-module pass/fail with timings, and sends one summary. Any module also runs standalone.
 
 ## Architecture
@@ -46,7 +47,7 @@ backup-orchestrator.sh          # Entry point: --daily, --weekly, --dry-run
     ├── backup-plex-db.sh       # Plex database targeted backup
     ├── backup-system-configs.sh # System configuration files
     ├── backup-home.sh          # Home directory with exclusions
-    ├── offsite-sync.sh         # rclone sync to Google Drive
+    ├── offsite-sync.sh         # rclone sync to OFFSITE_DEST (GDrive / B2 / S3 …)
     ├── prune-snapshots.sh      # Retention policy enforcement
     └── verify-backup.sh        # Integrity and freshness checks
 ```
@@ -56,7 +57,7 @@ The orchestrator runs each module in sequence, captures pass/fail results, and s
 ## Prerequisites
 
 - [restic](https://restic.net/) (backup engine)
-- [rclone](https://rclone.org/) (offsite sync to Google Drive)
+- [rclone](https://rclone.org/) (offsite sync — any configured remote)
 - [Docker](https://docs.docker.com/engine/install/) (for volume backup module)
 - `curl` (Discord notifications)
 - `pigz` (parallel gzip, used by extras/system-backup.sh)
@@ -94,7 +95,10 @@ All configuration is centralized in `lib/config.sh`, which reads from environmen
 |----------|-------------|---------|
 | `RESTIC_REPOSITORY` | Path to your restic repository | `/path/to/restic/repo` |
 | `RESTIC_PASSWORD_FILE` | Path to restic password file | `$HOME/.config/restic/password` |
-| `GDRIVE_DEST` | rclone destination for offsite sync | `gdrive:Backups/restic` |
+| `OFFSITE_DEST` | rclone destination for offsite sync (any remote: `gdrive:…`, `b2-backup:bucket/path`, `s3:…`) | falls back to `GDRIVE_DEST` |
+| `GDRIVE_DEST` | Legacy alias for `OFFSITE_DEST` (kept for back-compat) | `gdrive:Backups/restic` |
+| `OFFSITE_FREE_MIN_GB` | Warn when the offsite remote has less free space than this (0 = skip; B2 reports no quota, so leave 0 there) | `0` |
+| `SKIP_MODULES` | Space-separated modules to skip on this host, e.g. `"plex-db volumes"` | (none) |
 | `DISCORD_WEBHOOK` | Discord webhook URL for notifications | (required) |
 | `BOT_USERNAME` | Discord bot display name | `Backup Bot` |
 | `BOT_AVATAR_URL` | Discord bot avatar URL | (empty) |
@@ -117,7 +121,7 @@ KEEP_MONTHLY=6     # Keep 6 monthly snapshots
 ### Alert Thresholds
 
 ```bash
-GDRIVE_FREE_MIN_GB=50     # Warn if GDrive free space drops below 50GB
+OFFSITE_FREE_MIN_GB=0     # Warn if offsite free space drops below N GB (0 = skip)
 RESTIC_REPO_MAX_GB=45     # Warn if local repo exceeds 45GB
 LOCAL_FREE_MIN_GB=20      # Warn if local disk free space drops below 20GB
 SNAPSHOT_MAX_AGE_HOURS=26  # Warn if newest snapshot is older than 26 hours
@@ -151,7 +155,7 @@ source .env
 ./modules/backup-plex-db.sh        # Just Plex DB
 ./modules/backup-system-configs.sh # Just system configs
 ./modules/backup-home.sh           # Just home directory
-./modules/offsite-sync.sh          # Just GDrive sync
+./modules/offsite-sync.sh          # Just offsite sync
 ./modules/prune-snapshots.sh       # Just pruning
 ./modules/verify-backup.sh         # Just verification
 ```
@@ -233,6 +237,22 @@ restic-backup-system/
 ├── LICENSE                      # MIT
 └── README.md
 ```
+
+## Backblaze B2 setup (offsite on a budget)
+
+1. Create a bucket (private, no public access).
+2. Create an **application key scoped to that bucket only** — the backup host should not be able to touch anything else in the account.
+3. Set a lifecycle rule of *keep only the last version*: restic already keeps history inside the repo, so B2 versioning would just double the bill.
+4. `rclone config` → new remote of type `b2` with the key ID and key.
+5. In `config.local.sh` (gitignored):
+
+```bash
+OFFSITE_DEST="b2-backup:my-bucket/restic"
+OFFSITE_FREE_MIN_GB=0          # B2 has no fixed quota to check
+SKIP_MODULES="plex-db volumes" # only if this host has no Plex / named volumes
+```
+
+At ~$0.006/GB/month a 30 GB repo costs pennies, and the encryption key never leaves the host.
 
 ## Customizing Volume List
 
