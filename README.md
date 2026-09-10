@@ -1,5 +1,7 @@
 # Restic Backup System
 
+> **Built with Claude Code.** I set the requirements and the architecture, made the design decisions, and run it in production on both of my Linux hosts. The agent wrote most of the code under my direction.
+
 After a close call with a failing drive that almost took my Plex database with it, I built this to back up everything automatically — Docker volumes, system configs, the Plex DB (without the 40GB of regenerable cache), and my home directory. Everything's encrypted and mirrored offsite to any rclone remote — Google Drive on one host, Backblaze B2 on another. It runs on cron and sends Discord notifications so I know it's working without having to check.
 
 Modular design — each backup target is its own script, so you can run just what you need or add new modules without touching the orchestrator.
