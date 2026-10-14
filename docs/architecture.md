@@ -93,4 +93,6 @@ The `extras/system-backup.sh` script provides a different backup tier: full part
 - **restic** — granular file recovery, deduplication, incremental
 - **dd image** — bare-metal disaster recovery, bootable restore
 
-The system backup stops all Docker containers to ensure filesystem consistency, creates compressed images of the EFI and root partitions, saves the partition table, generates a manifest, then restarts Docker. A background progress monitor polls `/proc/<pid>/fdinfo` to show real-time progress.
+The system backup stops all Docker containers to ensure filesystem consistency, creates compressed images of the EFI and root partitions, saves the partition table, generates a manifest, then restarts only the services that were running before it stopped them. A background progress monitor polls `/proc/<pid>/fdinfo` to show real-time progress.
+
+Every exit path goes through a single `EXIT` trap. The trap restarts Docker if the script stopped it, removes the lock file only if this instance owns it, and on a non-zero exit (outside `--dry-run`) posts the failure reason to the Discord webhook. Under cron, a `set -e` abort otherwise leaves nothing but a log line. A wrong `DOCKER_DIR` once broke every weekly image for seven weeks before anyone noticed.

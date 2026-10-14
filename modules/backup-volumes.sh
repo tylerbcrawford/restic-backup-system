@@ -70,6 +70,9 @@ main() {
     # Using restic/restic image because the host binary is glibc-linked
     # and won't execute inside Alpine (musl). The official image ships
     # a statically-linked restic binary.
+    # --user leaves HOME=/ inside the container, so restic can't create its cache
+    # (/.cache: permission denied). Pre-create the host cache so Docker doesn't make it root-owned.
+    mkdir -p "$HOME/.cache/restic"
     # shellcheck disable=SC2086
     docker run --rm \
         --name backup-volumes \
@@ -78,6 +81,8 @@ main() {
         -v "$RESTIC_PASSWORD_FILE":/password:ro \
         -e RESTIC_REPOSITORY=/repo \
         -e RESTIC_PASSWORD_FILE=/password \
+        -v "$HOME/.cache/restic":/cache \
+        -e RESTIC_CACHE_DIR=/cache \
         $mounts \
         restic/restic:0.18.1 \
         backup /data/ \

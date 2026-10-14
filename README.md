@@ -179,9 +179,11 @@ source .env
 Full system image backup using `dd` + `pigz`. Creates compressed images of your EFI and root partitions to an external drive. Includes:
 
 - Real-time progress monitoring via `/proc` polling
-- Automatic Docker stop/start with verification
+- Automatic Docker stop/start with verification — only the services that were running beforehand are restarted (`docker compose start`, so stopped-by-design containers stay stopped and nothing is recreated)
+- Refuses to run if `DOCKER_DIR` has no running compose services (catches a wrong path before anything is stopped)
+- Failure alert to a Discord webhook on any non-zero exit, so a cron run can't fail silently
 - Backup manifest with system info
-- Automatic cleanup of old images (configurable retention)
+- Automatic cleanup of old images (configurable retention; old images are removed only after a new one succeeds)
 - Dry-run mode
 
 ```bash
@@ -191,7 +193,9 @@ sudo bash extras/system-backup.sh              # Interactive
 sudo bash extras/system-backup.sh --yes        # Non-interactive (for cron)
 ```
 
-**Important:** Edit the `SRC_DISK`, `SRC_EFI`, and `SRC_ROOT` variables to match your system's partition layout. Run `lsblk` to identify your drives.
+**Important:** Edit the `SRC_DISK`, `SRC_EFI`, and `SRC_ROOT` variables to match your system's partition layout. Run `lsblk` to identify your drives. Set `DOCKER_DIR` to your compose project directory.
+
+**Failure alerts:** `sudo` strips your environment, so either set `DISCORD_WEBHOOK` at the top of the script or set `WEBHOOK_ENV_FILE` to this repo's `.env` (it reads the `DISCORD_WEBHOOK=` line). With neither set, failures only reach the log.
 
 ### prepare-backup-drive.sh
 

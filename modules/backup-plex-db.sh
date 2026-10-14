@@ -21,6 +21,9 @@ main() {
 
     # Mount only the plex config volume, backup just the Databases directory
     # Using restic/restic image (static binary) instead of alpine + host binary
+    # --user leaves HOME=/ inside the container, so restic can't create its cache
+    # (/.cache: permission denied). Pre-create the host cache so Docker doesn't make it root-owned.
+    mkdir -p "$HOME/.cache/restic"
     docker run --rm \
         --name backup-plex-db \
         --user "$(id -u):$(id -g)" \
@@ -28,6 +31,8 @@ main() {
         -v "$RESTIC_PASSWORD_FILE":/password:ro \
         -e RESTIC_REPOSITORY=/repo \
         -e RESTIC_PASSWORD_FILE=/password \
+        -v "$HOME/.cache/restic":/cache \
+        -e RESTIC_CACHE_DIR=/cache \
         -v "${PLEX_VOLUME}:/data/${PLEX_VOLUME}:ro" \
         restic/restic:0.18.1 \
         backup "/data/${PLEX_VOLUME}/${PLEX_DB_PATH}" \

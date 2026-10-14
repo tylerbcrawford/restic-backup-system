@@ -26,10 +26,17 @@ BACKUP_DIR="$BACKUP_MOUNT/images"
 LOG_DIR="$BACKUP_MOUNT/logs"
 SCRIPT_DIR="$BACKUP_MOUNT/scripts"
 DATE=$(date +%Y%m%d-%H%M)
-RETENTION_DAYS=21          # Keep 3 weeks of backups
+RETENTION_DAYS=21          # Keep 3 weeks of backups (old images are removed only AFTER a new one succeeds)
+LOG_RETENTION_DAYS=21      # Per-run logs
 MIN_SPACE_GB=200           # Minimum free space required on backup drive
 DOCKER_DIR="${DOCKER_DIR:-/path/to/docker-compose-directory}"
 LOCK_FILE="/tmp/system-backup.lock"
+
+# Failure alerts (optional) — Discord-compatible webhook. sudo strips the environment,
+# so for cron either hardcode it here or point WEBHOOK_ENV_FILE at a .env with a
+# DISCORD_WEBHOOK=... line. Unset = no alerts.
+DISCORD_WEBHOOK="${DISCORD_WEBHOOK:-}"
+WEBHOOK_ENV_FILE="${WEBHOOK_ENV_FILE:-}"
 
 # Source drive partitions — CHANGE THESE to match your system
 # Run `lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS` to identify your layout
@@ -52,13 +59,29 @@ error() { echo -e "${RED}[$(date '+%Y-%m-%d %H:%M:%S')] ERROR:${NC} $1"; }
 
 die() {
     error "$1"
-    cleanup
-    exit 1
+    FAIL_REASON="$1"
+    exit 1   # the EXIT trap runs cleanup (calling it here too would restart Docker twice)
+}
+
+# Under cron a set -e abort is otherwise silent — a wrong DOCKER_DIR can break
+# every run for weeks before anyone notices the images stopped appearing.
+FAIL_REASON=""
+notify_failure() {
+    local rc="$1" hook="$DISCORD_WEBHOOK"
+    if [[ -z "$hook" && -n "$WEBHOOK_ENV_FILE" ]]; then
+        hook=$(grep -m1 '^DISCORD_WEBHOOK=' "$WEBHOOK_ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"') || true
+    fi
+    [[ -n "$hook" ]] || return 0
+    python3 -c 'import json,sys,urllib.request
+urllib.request.urlopen(urllib.request.Request(sys.argv[1], data=json.dumps({"content": sys.argv[2][:1900]}).encode(),
+  headers={"Content-Type":"application/json","User-Agent":"system-backup/1"}), timeout=15)' \
+        "$hook" "❌ **$(hostname) system image backup FAILED** (exit $rc): ${FAIL_REASON:-unexpected error — see $LOG_DIR}" 2>/dev/null || true
 }
 
 # ─── State tracking ─────────────────────────────────────────────────────────
 DOCKER_STOPPED=false
 MONITOR_PID=""
+RUNNING_SERVICES=""   # services running before stop — only these are restarted
 
 # ─── Progress Monitor ──────────────────────────────────────────────────────
 # Runs in background, polls dd's read position via /proc to show live progress
@@ -118,15 +141,24 @@ cleanup() {
     if [[ "$DOCKER_STOPPED" == "true" ]]; then
         echo -e "${YELLOW}[$(date '+%Y-%m-%d %H:%M:%S')] Ensuring Docker services are restarted...${NC}"
         cd "$DOCKER_DIR"
-        docker compose up -d 2>&1 | tail -5
+        # shellcheck disable=SC2086
+        [[ -n "$RUNNING_SERVICES" ]] && docker compose start $RUNNING_SERVICES 2>&1 | tail -5
         sleep 15
         local running
         running=$(docker ps -q 2>/dev/null | wc -l)
         echo -e "${GREEN}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} Docker containers running: $running"
+        DOCKER_STOPPED=false
     fi
-    rm -f "$LOCK_FILE"
+    # Only remove the lock if we own it (a second instance bailing on the lock must not delete it)
+    [[ "$(cat "$LOCK_FILE" 2>/dev/null)" == "$$" ]] && rm -f "$LOCK_FILE"
+    return 0
 }
-trap cleanup EXIT
+on_exit() {
+    local rc=$?
+    cleanup
+    if [[ $rc -ne 0 && "${DRY_RUN:-false}" != "true" ]]; then notify_failure "$rc"; fi
+}
+trap on_exit EXIT
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
 AUTO_YES=false
@@ -237,7 +269,12 @@ fi
 log "Stopping Docker services..."
 DOCKER_START_TIME=$SECONDS
 
-cd "$DOCKER_DIR"
+cd "$DOCKER_DIR" || die "DOCKER_DIR not found: $DOCKER_DIR"
+# Record what's running so only those services come back (stopped-by-design
+# containers stay stopped; `start` never recreates, unlike `up -d`)
+RUNNING_SERVICES=$(docker compose ps --services --status running | tr '\n' ' ')
+[[ -n "$RUNNING_SERVICES" ]] || die "No running compose services found in $DOCKER_DIR — refusing to continue (wrong DOCKER_DIR?)"
+log "Running services to restore: $(wc -w <<< "$RUNNING_SERVICES")"
 docker compose stop 2>&1 | tail -5
 DOCKER_STOPPED=true
 sleep 5
@@ -340,7 +377,8 @@ EOF
 # ─── Restart Docker ──────────────────────────────────────────────────────────
 log "Restarting Docker services..."
 cd "$DOCKER_DIR"
-docker compose up -d 2>&1 | tail -5
+# shellcheck disable=SC2086
+docker compose start $RUNNING_SERVICES 2>&1 | tail -5
 DOCKER_STOPPED=false
 sleep 15
 
@@ -359,7 +397,7 @@ done < <(find "$BACKUP_DIR" \( -name "*.img.gz" -o -name "manifest-*.txt" -o -na
 while IFS= read -r -d '' file; do
     rm -f "$file"
     ((OLD_COUNT++)) || true
-done < <(find "$LOG_DIR" -name "backup-*.log" -mtime +"$RETENTION_DAYS" -print0 2>/dev/null)
+done < <(find "$LOG_DIR" -name "backup-*.log" -mtime +"$LOG_RETENTION_DAYS" -print0 2>/dev/null)
 
 if [[ $OLD_COUNT -gt 0 ]]; then
     log "Removed $OLD_COUNT old backup files"
