@@ -36,6 +36,8 @@ LOCK_FILE="/tmp/system-backup.lock"
 # so for cron either hardcode it here or point WEBHOOK_ENV_FILE at a .env with a
 # DISCORD_WEBHOOK=... line. Unset = no alerts.
 DISCORD_WEBHOOK="${DISCORD_WEBHOOK:-}"
+# Optional: custom notifier, run as `$NOTIFY_COMMAND down <title> <body>` instead of the webhook.
+NOTIFY_COMMAND="${NOTIFY_COMMAND:-}"
 WEBHOOK_ENV_FILE="${WEBHOOK_ENV_FILE:-}"
 
 # Source drive partitions — CHANGE THESE to match your system
@@ -68,6 +70,11 @@ die() {
 FAIL_REASON=""
 notify_failure() {
     local rc="$1" hook="$DISCORD_WEBHOOK"
+    if [[ -n "$NOTIFY_COMMAND" ]]; then
+        bash -c "$NOTIFY_COMMAND \"\$@\"" _ down "$(hostname) system image backup FAILED" \
+            "exit $rc: ${FAIL_REASON:-unexpected error — see $LOG_DIR}" || true
+        return 0
+    fi
     if [[ -z "$hook" && -n "$WEBHOOK_ENV_FILE" ]]; then
         hook=$(grep -m1 '^DISCORD_WEBHOOK=' "$WEBHOOK_ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"') || true
     fi

@@ -51,6 +51,11 @@ SNAPSHOT_MAX_AGE_HOURS=26   # Warn if newest snapshot older than this
 # Discord notifications
 DISCORD_WEBHOOK="${DISCORD_WEBHOOK:-}"
 
+# Optional custom notifier (default off). When set, notifications are passed to it
+# as `$NOTIFY_COMMAND <status> <title> <body>` (status: ok|info|warn|down|resolved)
+# and the Discord webhook post is skipped.
+NOTIFY_COMMAND="${NOTIFY_COMMAND:-}"
+
 # Backup exclusions for home directory
 HOME_EXCLUDES=(
     ".cache"

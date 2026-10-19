@@ -102,6 +102,7 @@ All configuration is centralized in `lib/config.sh`, which reads from environmen
 | `OFFSITE_FREE_MIN_GB` | Warn when the offsite remote has less free space than this (0 = skip; B2 reports no quota, so leave 0 there) | `0` |
 | `SKIP_MODULES` | Space-separated modules to skip on this host, e.g. `"plex-db volumes"` | (none) |
 | `DISCORD_WEBHOOK` | Discord webhook URL for notifications | (required) |
+| `NOTIFY_COMMAND` | Optional custom notifier, see [Custom notifier hook](#custom-notifier-hook). When set, the webhook post is skipped | (empty, off) |
 | `BOT_USERNAME` | Discord bot display name | `Backup Bot` |
 | `BOT_AVATAR_URL` | Discord bot avatar URL | (empty) |
 | `DOCKER_DIR` | Directory containing `docker-compose.yml` | `/path/to/docker-compose-directory` |
@@ -128,6 +129,18 @@ RESTIC_REPO_MAX_GB=45     # Warn if local repo exceeds 45GB
 LOCAL_FREE_MIN_GB=20      # Warn if local disk free space drops below 20GB
 SNAPSHOT_MAX_AGE_HOURS=26  # Warn if newest snapshot is older than 26 hours
 ```
+
+### Custom notifier hook
+
+Set `NOTIFY_COMMAND` to send notifications somewhere other than the built-in Discord webhook. It is off by default; with it unset nothing changes.
+
+When set, each notification runs
+
+```bash
+$NOTIFY_COMMAND <status> <title> <body>
+```
+
+and the webhook post is skipped. `status` is one of `ok`, `info`, `warn`, `down` or `resolved` (this repo emits `ok`, `warn` and `down`; `down` is a failure). `title` is a single line and `body` may contain newlines, both as plain text. The value is trusted configuration run through `bash -c`, so a command prefix works, e.g. `NOTIFY_COMMAND="env CHANNEL=ops /usr/local/bin/my-notifier"`. A non-zero exit from the command is ignored and never fails the backup. `extras/system-backup.sh` honours the same variable for its failure alert.
 
 ## Usage
 
@@ -195,7 +208,7 @@ sudo bash extras/system-backup.sh --yes        # Non-interactive (for cron)
 
 **Important:** Edit the `SRC_DISK`, `SRC_EFI`, and `SRC_ROOT` variables to match your system's partition layout. Run `lsblk` to identify your drives. Set `DOCKER_DIR` to your compose project directory.
 
-**Failure alerts:** `sudo` strips your environment, so either set `DISCORD_WEBHOOK` at the top of the script or set `WEBHOOK_ENV_FILE` to this repo's `.env` (it reads the `DISCORD_WEBHOOK=` line). With neither set, failures only reach the log.
+**Failure alerts:** `sudo` strips your environment, so either set `DISCORD_WEBHOOK` at the top of the script or set `WEBHOOK_ENV_FILE` to this repo's `.env` (it reads the `DISCORD_WEBHOOK=` line). With neither set, failures only reach the log. `NOTIFY_COMMAND` (see below) takes precedence over the webhook if set at the top of the script.
 
 ### prepare-backup-drive.sh
 

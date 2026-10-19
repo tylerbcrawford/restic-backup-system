@@ -7,6 +7,18 @@ _NOTIFY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -z "${DISCORD_WEBHOOK:-}" ]] && source "$_NOTIFY_DIR/config.sh"
 [[ -z "${BOT_USERNAME:-}" ]] && source "$_NOTIFY_DIR/branding.sh"
 
+# ── Custom notifier hook ─────────────────────────────────
+
+# If NOTIFY_COMMAND is set, notifications are handed to it instead of being
+# posted to the Discord webhook:   $NOTIFY_COMMAND <status> <title> <body>
+# status is one of: ok | info | warn | down | resolved
+# The value is trusted configuration and is run through bash, so a command
+# prefix such as "env VAR=value /path/to/notifier" works.
+# Usage: _notify_hook status "title" "body"
+_notify_hook() {
+    bash -c "$NOTIFY_COMMAND \"\$@\"" _ "$1" "$2" "$3" || true
+}
+
 # ── Discord Embed Sender ─────────────────────────────────
 
 # Low-level: send a Discord embed via webhook
@@ -78,6 +90,17 @@ send_discord_summary() {
 
     desc+="\\n**Duration:** ${duration_min}m | **Repo:** ${repo_gb}GB"
 
+    if [[ -n "${NOTIFY_COMMAND:-}" ]]; then
+        local plain="" hook_status="ok"
+        [[ "$failures" -eq 0 ]] || hook_status="down"
+        for entry in "${entries[@]}"; do
+            plain+="${entry%%:*}: ${entry#*:}"$'\n'
+        done
+        plain+="Duration: ${duration_min}m | Repo: ${repo_gb}GB"
+        _notify_hook "$hook_status" "$title" "$plain"
+        return 0
+    fi
+
     _send_embed "$title" "$desc" "$color" "$BOT_USERNAME | $(hostname)"
 }
 
@@ -85,6 +108,10 @@ send_discord_summary() {
 # Usage: send_discord_warning "Low disk space" "Only 15GB free on /home"
 send_discord_warning() {
     local title="$1" message="$2"
+    if [[ -n "${NOTIFY_COMMAND:-}" ]]; then
+        _notify_hook warn "$title" "$message"
+        return 0
+    fi
     _send_embed "\\u26a0\\ufe0f $title" "$message" 16776960 "$BOT_USERNAME | $(hostname)"
 }
 
@@ -92,5 +119,9 @@ send_discord_warning() {
 # Usage: send_discord_error "Backup failed" "restic returned exit code 1"
 send_discord_error() {
     local title="$1" message="$2"
+    if [[ -n "${NOTIFY_COMMAND:-}" ]]; then
+        _notify_hook down "$title" "$message"
+        return 0
+    fi
     _send_embed "\\u274c $title" "$message" 16711680 "$BOT_USERNAME | $(hostname)"
 }
