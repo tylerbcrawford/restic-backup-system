@@ -187,6 +187,8 @@ source .env
 
 ## Extras
 
+`extras/restore-drill.sh` restores a sample from the local and offsite repos into a temp dir, checks the files (SQLite integrity, gzip, non-empty), and removes them. Set `RESTORE_DRILL_PATHS` in `config.local.sh` to choose what it samples.
+
 ### system-backup.sh
 
 Full system image backup using `dd` + `pigz`. Creates compressed images of your EFI and root partitions to an external drive. Includes:
@@ -258,6 +260,8 @@ restic-backup-system/
 ```
 
 ## Backblaze B2 setup (offsite on a budget)
+
+Rclone sync deletes remotely, so keep hidden file versions for a recovery window: `rclone backend lifecycle REMOTE:BUCKET -o daysFromHidingToDeleting=30`. `offsite-sync.sh` also refuses to sync when the local repo fails to open or falls below `OFFSITE_MIN_LOCAL_PCT` of the offsite size.
 
 1. Create a bucket (private, no public access).
 2. Create an **application key scoped to that bucket only** — the backup host should not be able to touch anything else in the account.

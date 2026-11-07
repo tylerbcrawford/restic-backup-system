@@ -10,6 +10,29 @@ source "$SCRIPT_DIR/lib/config.sh"
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/discord-notify.sh"
 
+# Refuse to mirror a broken or shrunken local repo over the good offsite copy.
+# Returns non-zero when the sync should not run. Makes no changes.
+offsite_guard() {
+    if ! restic --no-lock cat config &>/dev/null; then
+        err "Local repo failed to open; refusing to sync over offsite copy"
+        return 1
+    fi
+
+    local local_bytes remote_bytes
+    local_bytes=$(du -sb "$RESTIC_REPOSITORY" | awk '{print $1}')
+    remote_bytes=$(rclone size "$OFFSITE_DEST" --json 2>/dev/null | sed -n 's/.*"bytes"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n1 || true)
+
+    if [[ -z "$remote_bytes" ]]; then
+        err "Could not read offsite size; refusing to sync"
+        return 1
+    fi
+
+    if (( remote_bytes > 0 && local_bytes * 100 < remote_bytes * ${OFFSITE_MIN_LOCAL_PCT:-50} )); then
+        err "Local repo (${local_bytes} bytes) is under ${OFFSITE_MIN_LOCAL_PCT:-50}% of offsite (${remote_bytes} bytes); refusing to sync"
+        return 1
+    fi
+}
+
 main() {
     log "Starting offsite sync to $OFFSITE_DEST"
 
@@ -22,6 +45,11 @@ main() {
     # Check repo exists and has data
     if [[ ! -d "$RESTIC_REPOSITORY/data" ]]; then
         err "Restic repository not found or empty at $RESTIC_REPOSITORY"
+        return 1
+    fi
+
+    if ! offsite_guard; then
+        send_discord_error "Offsite sync blocked" "Guard refused to sync $RESTIC_REPOSITORY to $OFFSITE_DEST. Offsite copy left unchanged."
         return 1
     fi
 
@@ -81,4 +109,4 @@ main() {
     return 0
 }
 
-main "$@"
+[[ "${BASH_SOURCE[0]}" == "$0" ]] && main "$@"

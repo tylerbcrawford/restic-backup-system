@@ -29,6 +29,17 @@ main() {
         sudo tar cf - -C /etc nginx 2>/dev/null | tar xf - -C "$STAGING_DIR/etc/" 2>/dev/null || \
         warn "Could not copy /etc/nginx (sudo required)"
     fi
+    # Extra host paths from SYSTEM_EXTRA_PATHS, kept under extra/ at their full path.
+    mkdir -p "$STAGING_DIR/extra"
+    for path in "${SYSTEM_EXTRA_PATHS[@]}"; do
+        if sudo test -e "$path"; then
+            sudo tar cf - -C / "${path#/}" 2>/dev/null | tar xf - -C "$STAGING_DIR/extra" 2>/dev/null || \
+            warn "Could not copy $path"
+        else
+            warn "Extra path not found: $path"
+        fi
+    done
+
     cp /etc/fstab "$STAGING_DIR/etc/fstab" 2>/dev/null || warn "Could not copy fstab"
     cp /etc/hosts "$STAGING_DIR/etc/hosts" 2>/dev/null || warn "Could not copy hosts"
 

@@ -2,6 +2,8 @@
 # prune-snapshots.sh — Apply retention policy and reclaim space
 # Runs weekly to keep the repo from growing unbounded.
 # Retention: 7 daily, 4 weekly, 6 monthly snapshots per tag.
+# Group by host and tag, not paths: system-configs uses a new temp path on every
+# run, so grouping by paths would put each snapshot in its own group and keep it forever.
 
 set -euo pipefail
 
@@ -19,7 +21,7 @@ main() {
         --keep-daily "$KEEP_DAILY" \
         --keep-weekly "$KEEP_WEEKLY" \
         --keep-monthly "$KEEP_MONTHLY" \
-        --group-by "paths,tags" \
+        --group-by "host,tags" \
         --prune \
         --verbose
 

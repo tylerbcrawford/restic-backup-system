@@ -66,7 +66,7 @@ Bot identity (username, avatar) is configured in `lib/branding.sh`.
 
 ## Retention Policy
 
-The pruning module (`prune-snapshots.sh`) uses restic's `forget` command with `--group-by "paths,tags"`:
+The pruning module (`prune-snapshots.sh`) uses restic's `forget` command with `--group-by "host,tags"`:
 
 | Tier | Default | Meaning |
 |------|---------|---------|

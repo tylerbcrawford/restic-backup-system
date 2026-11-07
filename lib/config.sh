@@ -38,6 +38,15 @@ TAG_PLEX_DB="plex-db"
 TAG_SYSTEM_CONFIGS="system-configs"
 TAG_HOME="home"
 
+# Extra host paths for the system-configs module (may need sudo to read)
+SYSTEM_EXTRA_PATHS=()
+
+# Offsite guard: refuse to sync if local repo is below this percent of offsite size
+OFFSITE_MIN_LOCAL_PCT=50
+
+# Restore drill: extra files or directories to restore and check from the home snapshot
+RESTORE_DRILL_PATHS=()
+
 # Retention policy
 KEEP_DAILY=7
 KEEP_WEEKLY=4
