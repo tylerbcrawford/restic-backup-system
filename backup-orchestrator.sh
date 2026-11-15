@@ -83,8 +83,8 @@ if [[ "$MODE" == "dry-run" ]]; then
     if [[ "$MODE" == "dry-run" ]]; then
         echo ""
         echo "Additional modules for --weekly:"
-        echo "  6. prune-snapshots.sh     (retention: ${KEEP_DAILY}d/${KEEP_WEEKLY}w/${KEEP_MONTHLY}m)"
-        echo "  7. verify-backup.sh       (integrity + freshness)"
+        echo "  6. prune-snapshots.sh     (retention: ${KEEP_DAILY}d/${KEEP_WEEKLY}w/${KEEP_MONTHLY}m; runs before offsite-sync)"
+        echo "  7. verify-backup.sh       (integrity + freshness; runs last)"
     fi
 
     exit 0
@@ -122,11 +122,18 @@ run_or_skip "volumes" "$MODULES_DIR/backup-volumes.sh" || ((FAIL_COUNT++))
 run_or_skip "plex-db" "$MODULES_DIR/backup-plex-db.sh" || ((FAIL_COUNT++))
 run_or_skip "system-configs" "$MODULES_DIR/backup-system-configs.sh" || ((FAIL_COUNT++))
 run_or_skip "home" "$MODULES_DIR/backup-home.sh" || ((FAIL_COUNT++))
-run_or_skip "offsite-sync" "$MODULES_DIR/offsite-sync.sh" || ((FAIL_COUNT++))
 
-# Weekly-only modules
+# Weekly: prune before offsite-sync. Pruning after the sync leaves the offsite
+# copy larger than the local repo until the next daily run, which verify then
+# reports as "Offsite out of sync".
 if [[ "$MODE" == "weekly" ]]; then
     run_module "prune" "$MODULES_DIR/prune-snapshots.sh" || ((FAIL_COUNT++))
+fi
+
+run_or_skip "offsite-sync" "$MODULES_DIR/offsite-sync.sh" || ((FAIL_COUNT++))
+
+# Weekly: verify after offsite-sync so the remote is up to date
+if [[ "$MODE" == "weekly" ]]; then
     run_module "verify" "$MODULES_DIR/verify-backup.sh" || ((FAIL_COUNT++))
 fi
 
